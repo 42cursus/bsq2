@@ -12,18 +12,52 @@
 
 cmake_minimum_required(VERSION 3.27)
 
-#set(CMAKE_C_COMPILER clang)
-#set(CMAKE_C_COMPILER gcc)
 set(CMAKE_C_COMPILER gcc-13)
+
+set(GLIBC_PATH "/opt/glibc-2.35/lib/x86_64-linux-gnu")
+set(LIBGCC_PATH "/usr/lib/gcc/x86_64-linux-gnu/13")
+
+execute_process(COMMAND ${CMAKE_C_COMPILER} -print-file-name=libasan.so
+		OUTPUT_VARIABLE ASAN_SO OUTPUT_STRIP_TRAILING_WHITESPACE)
+execute_process(COMMAND ${CMAKE_C_COMPILER} -print-file-name=libubsan.so
+		OUTPUT_VARIABLE UBSAN_SO OUTPUT_STRIP_TRAILING_WHITESPACE)
+set(LIBGCC_S_SO "${LIBGCC_PATH}/libgcc_s.so")
+
+get_filename_component(GCC_SAN_DIR "${ASAN_SO}" DIRECTORY)
+get_filename_component(GCC_UB_DIR  "${UBSAN_SO}" DIRECTORY)
+get_filename_component(GCC_LIB_DIR "${LIBGCC_S_SO}" DIRECTORY)
+
 set(COMMON_LDFLAGS
+		-nodefaultlibs
+		-Wl,--disable-new-dtags                # emit DT_RPATH, not RUNPATH
+		# runtime loader from your alt glibc
+		-Wl,-dynamic-linker=${GLIBC_PATH}/ld-linux-x86-64.so.2
+		-Wl,-rpath,${GLIBC_PATH}
+
+		# GCC sanitizer dir at link and runtime
+		-L${GCC_SAN_DIR} -L${GCC_UB_DIR} -L${GCC_LIB_DIR}
+		-Wl,-rpath,${GCC_SAN_DIR}
+		-Wl,-rpath,${GCC_UB_DIR}
+		-Wl,-rpath,${GCC_LIB_DIR}
+
+		-L${GLIBC_PATH}
+#		-lasan -lubsan -lpthread -ldl -lrt -lc -lgcc_s -lgcc
+#		-static-libasan -static-libubsan
 		-fsanitize=address,undefined,bounds,alignment,object-size
 		-fsanitize=shift,signed-integer-overflow,null,return
 		-fsanitize=float-divide-by-zero,float-cast-overflow
 		-fno-sanitize-recover
+		-fno-builtin-strdup
+
 )
 
 set(COMMON_LIBS
+		asan ubsan
+		gcc_s gcc
+		pthread dl rt
 		m
+		c
+
 )
 
 set(COMMON_CFLAGS
@@ -47,6 +81,7 @@ set(COMMON_CFLAGS
 		-fsanitize=shift,signed-integer-overflow,null,return
 		-fsanitize=float-divide-by-zero,float-cast-overflow
 		-fno-sanitize-recover
+		-fno-builtin-strdup
 )
 
 include_directories(include)

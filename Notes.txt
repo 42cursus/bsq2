@@ -1,0 +1,24 @@
+LD_DEBUG=libs ./bsq2 2>&1 | less -X
+docker run --rm -it --network host \
+	--cap-add=SYS_PTRACE \
+	--security-opt seccomp=unconfined \
+	-v ${HOME}/git/c/42london/bsq2:/work \
+	-v ${HOME}/staging:/root/staging gdb12
+
+Bake in the loader and rpath into the binaries:
+patchelf --set-interpreter /opt/glibc-2.35/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2 bsq2
+patchelf --set-rpath /opt/glibc-2.35/lib/x86_64-linux-gnu:/opt/glibc-2.35/usr/lib/x86_64-linux-gnu bsq2
+
+Or at link time:
+-Wl,-rpath,/opt/glibc-2.35/lib/x86_64-linux-gnu:/opt/glibc-2.35/usr/lib/x86_64-linux-gnu
+
+Locales:
+/opt/glibc-2.35/usr/bin/localedef --prefix=/opt/glibc-2.35 -i en_US -f UTF-8 en_US.UTF-8
+
+
+Useful diagnostics:
+	# https://www.gnu.org/software/libc/manual/html_node/Tunables.html
+	# https://sourceware.org/glibc/manual/2.35/html_node/Tunables.html
+		/lib64/ld-linux-x86-64.so.2 --list-tunables
+GLIBC_TUNABLES=glibc.rtld.dynamic_debug=1 glibc-run /bin/true
+LD_DEBUG=libs,reloc,symbols glibc-run bsq2 2>&1 | less -X

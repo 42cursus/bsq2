@@ -14,10 +14,17 @@
 
 t_sq bsqSolve(t_bsq bsq);
 void delete_queue(t_tailhead *head);
-
-void readMap(FILE *stream, t_bsq *bsq, t_tailhead *head);
-
+int readMap(FILE *stream, t_bsq *bsq, t_tailhead *head);
 void fill_bsq(t_bsq *bsq, t_sq result);
+int read_map(const char *filename, t_bsq *bsq, t_tailhead *head);
+
+
+typedef struct s_readbuf
+{
+	size_t	len;
+	ssize_t	nread;
+	char	*line;
+}	t_readbuf;
 
 /**
  * TIP To <b>Run</b> code, press <shortcut actionId="Run"/> or
@@ -28,7 +35,7 @@ void fill_bsq(t_bsq *bsq, t_sq result);
  */
 int main(int argc, char **argv)
 {
-	FILE	*stream;
+
 	t_bsq	bsq = {0x00};
 
 	/* Tail queue head */
@@ -37,33 +44,49 @@ int main(int argc, char **argv)
 	if (argc != 2)
 		exit((fprintf(stderr, "Usage: %s <file>\n", argv[0]), EXIT_FAILURE));
 	{
-		stream = fopen(argv[1], "r");
-		if (stream == NULL)
-			exit((fprintf(stderr, "fopen: %m"), EXIT_FAILURE));
+		char *filename = argv[1];
 
-		if (fscanf(stream, "%d%c%c%c\n",
-				   &bsq.legend.rows,
-				   &bsq.legend.empty,
-				   &bsq.legend.obstacle,
-				   &bsq.legend.full) != 4)
+		if (!read_map(filename, &bsq, &head))
 		{
-			fprintf(stderr, "Failed to parse map header: %m\n");
-			exit(1);
+			fill_bsq(&bsq, bsqSolve(bsq));
+			int i = -1;
+			while (++i < bsq.legend.rows)
+			{
+				fputs(bsq.map[i], stdout);
+				fputs("\n", stdout);
+			}
+			delete_queue(&head);
+			free(bsq.map);
 		}
-
-		readMap(stream, &bsq, &head);
-		fill_bsq(&bsq, bsqSolve(bsq));
-
-		int i = -1;
-		while (++i < bsq.legend.rows)
-		{
-			fputs(bsq.map[i], stdout);
-			fputs("\n", stdout);
-		}
-		delete_queue(&head);
-		free(bsq.map);
 	}
 	exit(EXIT_SUCCESS);
+}
+
+int read_map(const char *filename, t_bsq *bsq, t_tailhead *head)
+{
+	int		err_code = 0;
+	FILE	*stream = fopen(filename, "r");
+
+	if (stream == NULL)
+		exit((fprintf(stderr, "fopen: %m"), EXIT_FAILURE));
+	int n = fscanf(stream, "%d%c%c%c", // NOLINT(*-err34-c)
+			   &(*bsq).legend.rows,
+			   &(*bsq).legend.empty,
+			   &(*bsq).legend.obstacle,
+			   &(*bsq).legend.full);
+	if (n != 4) {
+		fprintf(stderr, "Failed to parse map header: %m\n");
+		exit(1);
+	}
+
+	/* Consume the rest of the line (newline or garbage) safely */
+	int c;
+	c = fgetc(stream);
+	while (c != '\n' && c != EOF)
+		c = fgetc(stream);
+	err_code = readMap(stream, bsq, head);
+	fclose(stream);
+	return (err_code);
 }
 
 void fill_bsq(t_bsq *bsq, t_sq result)
@@ -78,35 +101,40 @@ void fill_bsq(t_bsq *bsq, t_sq result)
 	}
 }
 
-void readMap(FILE *stream, t_bsq *bsq, t_tailhead *head)
-{
-	int		listSize = 0;
-	char	*line = NULL;
-	size_t	len = 0;
-	ssize_t	nread;
-	t_entry *n1, *np;
+extern char *strdup(const char *) __attribute__((noinline));
 
-	nread = getline(&line, &len, stream);
-	while (nread > 0) {
-		*strchrnul(line, '\n') = '\0';
+__attribute__((no_sanitize("all")))
+int readMap(FILE *stream, t_bsq *bsq, t_tailhead *head)
+{
+	t_entry		*n1, *np;
+	t_readbuf	buf;
+	int			listSize = 0;
+
+	buf.nread = getline(&buf.line, &buf.len, stream);
+	while (buf.nread > 0) {
+		*strchrnul(buf.line, '\n') = '\0';
 		if (bsq->cols == 0)
-			bsq->cols = (int)__builtin_strlen(line);
+			bsq->cols = (int)__builtin_strlen(buf.line);
 		n1 = malloc(sizeof(struct qentry));
-		n1->str = __builtin_strdup(line);
+		n1->str = strdup(buf.line);
 		TAILQ_INSERT_TAIL(head, n1, entries);
 		listSize++;
 		if (listSize > bsq->cols)
-			exit((delete_queue(head), fprintf(stderr, "fopen: %m"), EXIT_FAILURE));
-		nread = getline(&line, &len, stream);
+		{
+			free(buf.line);
+			delete_queue(head);
+			fprintf(stderr, "Error: listSize > bsq->cols\n");
+			return (EXIT_FAILURE);
+		}
+		buf.nread = getline(&buf.line, &buf.len, stream);
 	}
-	free(line);
-	fclose(stream);
-
+	free(buf.line);
 	bsq->map = calloc(bsq->legend.rows, sizeof(char *));
 
-	/* Forward traversal */
 	int i = 0;
-	TAILQ_FOREACH(np, head, entries) bsq->map[i++] = np->str;
+	TAILQ_FOREACH(np, head, entries) /* Forward traversal */
+		bsq->map[i++] = np->str;
+	return (0);
 }
 
 t_sq bsqSolve(t_bsq bsq)
