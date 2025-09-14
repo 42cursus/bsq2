@@ -69,21 +69,21 @@ int read_map(const char *filename, t_bsq *bsq, t_tailhead *head)
 
 	if (stream == NULL)
 		exit((fprintf(stderr, "fopen: %m"), EXIT_FAILURE));
-	int n = fscanf(stream, "%d%c%c%c", // NOLINT(*-err34-c)
-			   &(*bsq).legend.rows,
-			   &(*bsq).legend.empty,
-			   &(*bsq).legend.obstacle,
-			   &(*bsq).legend.full);
+	int n = fscanf(stream, "%d%c%c%c\n", // NOLINT(*-err34-c)
+			   &bsq->legend.rows,
+			   &bsq->legend.empty,
+			   &bsq->legend.obstacle,
+			   &bsq->legend.full);
 	if (n != 4) {
 		fprintf(stderr, "Failed to parse map header: %m\n");
 		exit(1);
 	}
 
 	/* Consume the rest of the line (newline or garbage) safely */
-	int c;
-	c = fgetc(stream);
-	while (c != '\n' && c != EOF)
-		c = fgetc(stream);
+//	int c;
+//	c = fgetc(stream);
+//	while (c != '\n' && c != EOF)
+//		c = fgetc(stream);
 	err_code = readMap(stream, bsq, head);
 	fclose(stream);
 	return (err_code);
@@ -91,11 +91,11 @@ int read_map(const char *filename, t_bsq *bsq, t_tailhead *head)
 
 void fill_bsq(t_bsq *bsq, t_sq result)
 {
-	int i = result.start.y;
+	int i = result.start.y -1;
 	while (++i <= result.end.y)
 	{
 		char *row = bsq->map[i];
-		int j = result.start.x;
+		int j = result.start.x - 1;
 		while (j < result.end.x)
 			row[j++] = bsq->legend.full;
 	}
@@ -107,7 +107,7 @@ __attribute__((no_sanitize("all")))
 int readMap(FILE *stream, t_bsq *bsq, t_tailhead *head)
 {
 	t_entry		*n1, *np;
-	t_readbuf	buf;
+	t_readbuf	buf = {0};
 	int			listSize = 0;
 
 	buf.nread = getline(&buf.line, &buf.len, stream);
@@ -119,7 +119,7 @@ int readMap(FILE *stream, t_bsq *bsq, t_tailhead *head)
 		n1->str = strdup(buf.line);
 		TAILQ_INSERT_TAIL(head, n1, entries);
 		listSize++;
-		if (listSize > bsq->cols)
+		if (listSize > bsq->legend.rows)
 		{
 			free(buf.line);
 			delete_queue(head);
@@ -153,8 +153,9 @@ t_sq bsqSolve(t_bsq bsq)
 	{
 		size_t curr = p.y & 1;
 		size_t prev = curr ^ 1;
-		dp[0][0] = 0;
-		p.x = 1;
+
+		dp[curr][0] = 0;
+		p.x = 0;
 		while (++p.x < bsq.cols + 1)
 		{
 			int up = dp[prev][p.x];
@@ -162,14 +163,15 @@ t_sq bsqSolve(t_bsq bsq)
 			int diag = dp[prev][p.x - 1];
 
 			int minNeighbour = -1;
-			if (bsq.map[p.y][p.x - 1] != legend.obstacle){
+			if (bsq.map[p.y][p.x - 1] == legend.empty){
 				minNeighbour = MIN(diag, MIN(up, left));
 				if (minNeighbour + 1 > maxSideLength)
 				{
-					maxSideLength = minNeighbour + 1;
 					result.end = p;
 					result.start.x = p.x - maxSideLength;
-					result.start.y =  p.y - maxSideLength;
+					result.start.y = p.y - maxSideLength;
+					maxSideLength = minNeighbour + 1;
+
 				}
 			}
 			dp[curr][p.x] = minNeighbour + 1;
